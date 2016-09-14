@@ -95,6 +95,9 @@ func parseHosts() []string {
 	if !addedSelf {
 		ret = append([]string{self}, ret...)
 	}
+	if len(ret) == 1 {
+		ret = append(ret, "_")
+	}
 	return ret
 }
 
