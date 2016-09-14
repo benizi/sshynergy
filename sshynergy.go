@@ -117,12 +117,9 @@ func getAgent() sshagent.Agent {
 	return sshagent.NewClient(conn)
 }
 
-func agentAuth() []ssh.AuthMethod {
-	return []ssh.AuthMethod{ssh.PublicKeysCallback(getAgent().Signers)}
-}
-
 type opensshconf struct {
 	user, hostname, port string
+	idfiles []string
 }
 
 func (conf opensshconf) address() string {
@@ -133,13 +130,58 @@ func (conf opensshconf) address() string {
 	return conf.hostname + ":" + port
 }
 
+func (conf opensshconf) signersFrom(agent sshagent.Agent) func() ([]ssh.Signer, error) {
+	return func() ([]ssh.Signer, error) {
+		var relevant []ssh.Signer
+		okFile := map[string]bool{}
+		for _, file := range conf.idfiles {
+			okFile[file] = true
+		}
+		okPubs := map[string]bool{}
+		keys, err := agent.List()
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range keys {
+			if okFile[key.Comment] {
+				okPubs[string(key.Marshal())] = true
+			}
+		}
+		signers, err := agent.Signers()
+		if err != nil {
+			return nil, err
+		}
+		for _, signer := range signers {
+			if okPubs[string(signer.PublicKey().Marshal())] {
+				relevant = append(relevant, signer)
+			}
+		}
+		if len(relevant) > 0 {
+			return relevant, nil
+		}
+		return signers, nil
+	}
+}
+
+func (conf opensshconf) agentAuth() []ssh.AuthMethod {
+	agent := getAgent()
+	return []ssh.AuthMethod{ssh.PublicKeysCallback(conf.signersFrom(agent))}
+}
+
+func (conf opensshconf) dial() (*ssh.Client, error) {
+	return ssh.Dial("tcp", conf.address(), &ssh.ClientConfig{
+		User: conf.user,
+		Auth: conf.agentAuth(),
+	})
+}
+
 func sshHostConf(host string) opensshconf {
 	var conf opensshconf
 	parsed, err := exec.Command("ssh", "-G", host).Output()
 	check(err)
 	scanner := bufio.NewScanner(bytes.NewReader(parsed))
 	for scanner.Scan() {
-		parts := strings.Split(scanner.Text(), " ")
+		parts := strings.SplitN(scanner.Text(), " ", 2)
 		if len(parts) < 2 {
 			continue
 		}
@@ -151,6 +193,14 @@ func sshHostConf(host string) opensshconf {
 			conf.hostname = val
 		case "port":
 			conf.port = val
+		case "identityfile":
+			file := val
+			if file[0] == '~' {
+				file = os.Getenv("HOME") + file[1:len(file)]
+			}
+			paths := strings.Split(file, "/")
+			conf.idfiles = append(conf.idfiles, file)
+			conf.idfiles = append(conf.idfiles, paths[len(paths)-1])
 		}
 	}
 	return conf
@@ -198,10 +248,7 @@ func runSynergyOn(conn *ssh.Client, host string) {
 
 func runRemote(host string) {
 	parsed := sshHostConf(host)
-	conn, err := ssh.Dial("tcp", parsed.address(), &ssh.ClientConfig{
-		User: parsed.user,
-		Auth: agentAuth(),
-	})
+	conn, err := parsed.dial()
 	check(err)
 	defer conn.Close()
 
