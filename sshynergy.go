@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -235,6 +236,7 @@ func forwardRemote(conn *ssh.Client) {
 		check(err)
 		local, err := net.Dial("tcp", "localhost:24800")
 		if err != nil {
+			log.Println(err)
 			continue
 		}
 		serveConnection(remote, local)
