@@ -111,6 +111,7 @@ func serveSynergy(hosts []string, ready chan error) {
 	check(stdin.Close())
 	check(cmd.Start())
 	ready <- nil
+	log.Println("Running synergys locally")
 	check(cmd.Wait())
 }
 
@@ -272,6 +273,7 @@ func runRemote(host string) {
 
 	go func() {
 		for {
+			log.Println("Forwarding remote port for", host)
 			forwardRemote(conn)
 		}
 	}()
