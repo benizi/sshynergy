@@ -8,5 +8,5 @@ Run Synergy over SSH without setting up config files.
 - [x] Generate synergy.conf given a list of hosts
 - [x] Use ssh-agent
 - [x] Parse `~/.ssh/config` to allow using shortnames
-- [ ] Respawn sessions if connections die
+- [x] Respawn sessions if connections die
 - [ ] Respawn sessions when user chooses
