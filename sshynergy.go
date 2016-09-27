@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/randr"
@@ -316,13 +317,25 @@ func runRemote(host string) {
 	select {}
 }
 
+func atMostEvery(every time.Duration, f func()) func() {
+	var nextAvailable time.Time
+	return func() {
+		if time.Now().Before(nextAvailable) {
+			return
+		}
+		nextAvailable = time.Now().Add(every)
+		f()
+	}
+}
+
 func restartOnXRandR() chan bool {
 	events := make(chan event, 100)
 	restarter := make(chan bool, 100)
 	xrandrSubscribe(events)
+	runner := atMostEvery(10*time.Second, func() { restarter <- true })
 	go func() {
 		for _ = range events {
-			restarter <- true
+			runner()
 		}
 	}()
 	return restarter
