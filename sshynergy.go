@@ -11,6 +11,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/BurntSushi/xgb"
+	"github.com/BurntSushi/xgb/randr"
+	"github.com/BurntSushi/xgb/xproto"
+
 	"golang.org/x/crypto/ssh"
 	sshagent "golang.org/x/crypto/ssh/agent"
 )
@@ -228,6 +232,33 @@ func serveConnection(remote, local net.Conn) {
 	local.Close()
 }
 
+type event struct {
+	xgb.Event
+}
+
+func xrandrSubscribe(events chan event) {
+	x, err := xgb.NewConn()
+	check(err)
+	check(randr.Init(x))
+	root := xproto.Setup(x).DefaultScreen(x).Root
+	mask := randr.NotifyMaskScreenChange |
+		randr.NotifyMaskCrtcChange |
+		randr.NotifyMaskOutputChange |
+		randr.NotifyMaskOutputProperty
+	check(randr.SelectInputChecked(x, root, uint16(mask)).Check())
+
+	go func(){
+		for {
+			ev, err := x.WaitForEvent()
+			if err != nil {
+				log.Println("X11 error", err)
+			} else {
+				events <- event{ev}
+			}
+		}
+	}()
+}
+
 func forwardRemote(conn *ssh.Client) {
 	listener, err := conn.Listen("tcp", "127.0.0.1:24800")
 	check(err)
@@ -285,6 +316,18 @@ func runRemote(host string) {
 	select {}
 }
 
+func restartOnXRandR() chan bool {
+	events := make(chan event, 100)
+	restarter := make(chan bool, 100)
+	xrandrSubscribe(events)
+	go func() {
+		for _ = range events {
+			restarter <- true
+		}
+	}()
+	return restarter
+}
+
 func init() {
 	var err error
 	self, err = os.Hostname()
@@ -294,6 +337,12 @@ func init() {
 func main() {
 	hosts := parseHosts()
 	runLocal(hosts)
+	restarter := restartOnXRandR()
+	go func() {
+		for _ = range restarter {
+			log.Println("WOULD RESTART")
+		}
+	}()
 	for _, host := range hosts {
 		if host != self {
 			go runRemote(host)
