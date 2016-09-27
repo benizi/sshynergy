@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 	sshagent "golang.org/x/crypto/ssh/agent"
@@ -206,18 +207,22 @@ func sshHostConf(host string) opensshconf {
 	return conf
 }
 
-func routeTraffic(src, dst net.Conn, done chan bool) {
-	_, err := io.Copy(src, dst)
-	check(err)
-	done <- true
-}
-
 func serveConnection(remote, local net.Conn) {
-	defer local.Close()
-	done := make(chan bool)
-	go routeTraffic(remote, local, done)
-	go routeTraffic(local, remote, done)
-	<-done
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		io.Copy(remote, local)
+		// remote.Channel.CloseWrite() // inaccessible
+	}()
+	go func() {
+		defer wg.Done()
+		io.Copy(local, remote)
+		local.(*net.TCPConn).CloseWrite()
+	}()
+	wg.Wait()
+	remote.Close()
+	local.Close()
 }
 
 func forwardRemote(conn *ssh.Client) {
@@ -228,12 +233,10 @@ func forwardRemote(conn *ssh.Client) {
 	for {
 		remote, err := listener.Accept()
 		check(err)
-		defer remote.Close()
-
 		local, err := net.Dial("tcp", "localhost:24800")
-		check(err)
-		defer local.Close()
-
+		if err != nil {
+			continue
+		}
 		serveConnection(remote, local)
 	}
 }
