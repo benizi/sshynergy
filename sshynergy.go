@@ -102,7 +102,7 @@ func parseHosts() []string {
 	return ret
 }
 
-func runLocal(hosts []string) {
+func serveSynergy(hosts []string) {
 	cmd := exec.Command("synergys", "-f", "-a", "127.0.0.1", "-c", "/dev/stdin")
 	stdin, err := cmd.StdinPipe()
 	check(err)
@@ -247,6 +247,15 @@ func runSynergyOn(conn *ssh.Client, host string) {
 	defer sess.Close()
 	sess.Start("synergyc -1 -f -n " + host + " localhost")
 	sess.Wait()
+}
+
+func runLocal(hosts []string) {
+	go func() {
+		for {
+			serveSynergy(hosts)
+		}
+	}()
+	select {}
 }
 
 func runRemote(host string) {
