@@ -252,12 +252,9 @@ func runSynergyOn(conn *ssh.Client, host string) {
 }
 
 func runLocal(hosts []string) {
-	go func() {
-		for {
-			serveSynergy(hosts)
-		}
-	}()
-	select {}
+	for {
+		serveSynergy(hosts)
+	}
 }
 
 func runRemote(host string) {
