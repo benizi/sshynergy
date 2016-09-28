@@ -328,17 +328,26 @@ func atMostEvery(every time.Duration, f func()) func() {
 	}
 }
 
+func delayed(delay time.Duration, f func()) func() {
+	return func() {
+		time.Sleep(delay)
+		f()
+	}
+}
+
 func restartOnXRandR() chan bool {
 	events := make(chan event, 100)
-	restarter := make(chan bool, 100)
+	filtered := make(chan bool, 100)
 	xrandrSubscribe(events)
-	runner := atMostEvery(10*time.Second, func() { restarter <- true })
+	delay := 3*time.Second
+	debounce := 10*time.Second
+	runner := delayed(delay, atMostEvery(debounce, func() { filtered <- true }))
 	go func() {
 		for _ = range events {
 			runner()
 		}
 	}()
-	return restarter
+	return filtered
 }
 
 func init() {
