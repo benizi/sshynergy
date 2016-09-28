@@ -116,7 +116,7 @@ func parseHosts() []string {
 	return ret
 }
 
-func serveSynergy(hosts []string, ready chan error) {
+func serveSynergy(hosts []string, ready chan error, restart chan bool) {
 	cmd := exec.Command("synergys", "-f", "-a", "127.0.0.1", "-c", "/dev/stdin")
 	stdin, err := cmd.StdinPipe()
 	check(err)
@@ -124,8 +124,17 @@ func serveSynergy(hosts []string, ready chan error) {
 	check(stdin.Close())
 	check(cmd.Start())
 	ready <- nil
-	log.Println("Running synergys locally")
-	check(cmd.Wait())
+	log.Println("Local synergys pid:", cmd.Process.Pid)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- cmd.Wait()
+	}()
+	select {
+	case <-restart:
+		cmd.Process.Kill()
+	case e := <-finished:
+		check(e)
+	}
 }
 
 func getAgent() sshagent.Agent {
@@ -297,7 +306,7 @@ func forwardRemote(conn *ssh.Client) error {
 	return nil
 }
 
-func runSynergyOn(conn *ssh.Client, host string) error {
+func runSynergyOn(conn *ssh.Client, host string, restart chan bool) error {
 	sess, err := conn.NewSession()
 	if isNetErr(err) {
 		return nil
@@ -312,21 +321,36 @@ func runSynergyOn(conn *ssh.Client, host string) error {
 		return err
 	}
 	log.Println("Started synergyc on", host)
-	sess.Wait()
+
+	finished := make(chan error, 1)
+	go func() {
+		finished <- sess.Wait()
+	}()
+
+	select {
+	case again := <-restart:
+		sess.Close()
+		if again {
+			return nil
+		}
+		return io.EOF
+	case e := <-finished:
+		check(e)
+		return nil
+	}
 }
 
-func runLocal(hosts []string) {
+func runLocal(hosts []string, restarter *restartMux) {
 	ready := make(chan error, 1)
 	go func() {
 		for {
-			serveSynergy(hosts, ready)
+			serveSynergy(hosts, ready, restarter.addOutput(self))
 		}
 	}()
 	check(<-ready)
 }
 
-func runRemote(host string) {
-	parsed := sshHostConf(host)
+func runRemoteLoop(host string, parsed opensshconf, restart chan bool) error {
 	conn, err := parsed.dial()
 	if isNetErr(err) {
 		return err
@@ -334,13 +358,22 @@ func runRemote(host string) {
 	check(err)
 	defer conn.Close()
 
+	restartForward := make(chan bool, 1)
+	restartSynergy := make(chan bool, 1)
+	bailed := make(chan bool, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	go func() {
+		defer wg.Done()
 		for {
 			log.Println("Forwarding remote port for", host)
-			err := forwardRemote(conn)
+			err := forwardRemote(conn, restartForward)
 			if isNetErr(err) {
 				log.Println("Net error forwarding:", err)
 				log.Println("Bailing to restart", host)
+				restartSynergy <- false
 				return
 			} else if err != nil {
 				log.Println("Error forwarding remote:", err)
@@ -350,6 +383,7 @@ func runRemote(host string) {
 	}()
 
 	go func() {
+		defer wg.Done()
 		for {
 			err := runSynergyOn(conn, host, restartSynergy)
 			if err != nil {
@@ -360,7 +394,35 @@ func runRemote(host string) {
 		}
 	}()
 
+	go func() {
+		wg.Wait()
+		bailed <- true
+	}()
+
+	for {
+		select {
+		case <-restart:
+			restartForward <- true
+			restartSynergy <- true
+		case <-bailed:
+			break
+		}
+	}
+
 	return nil
+}
+
+func runRemote(host string, restart chan bool) {
+	parsed := sshHostConf(host)
+	go func() {
+		for {
+			err := runRemoteLoop(host, parsed, restart)
+			if err != nil {
+				log.Println("Error running remote:", err)
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 }
 
 func atMostEvery(every time.Duration, f func()) func() {
@@ -402,18 +464,60 @@ func init() {
 	check(err)
 }
 
-func main() {
-	hosts := parseHosts()
-	runLocal(hosts)
-	restarter := restartOnXRandR()
+// A restartMux takes some number of incoming "you should restart" signals and
+// fans them out to a list of listeners.
+type restartMux struct {
+	outs map[string]chan bool
+	mutex *sync.Mutex
+}
+
+func newRestartMux() *restartMux {
+	return &restartMux{
+		outs:  map[string]chan bool{},
+		mutex: &sync.Mutex{},
+	}
+}
+
+func (r *restartMux) listenFor(in chan bool) {
 	go func() {
-		for _ = range restarter {
-			log.Println("WOULD RESTART")
+		select {
+		case <-in:
+			r.notify()
 		}
 	}()
+}
+
+func (r *restartMux) notify() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	for _, out := range r.outs {
+		go func() {
+			out <- true
+		}()
+	}
+}
+
+func (r *restartMux) addOutput(name string) chan bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	out := make(chan bool, 100)
+	r.outs[name] = out
+	return out
+}
+
+func main() {
+	hosts := parseHosts()
+	restarter := newRestartMux()
+	restarter.listenFor(restartOnXRandR())
+	runLocal(hosts, restarter)
+	go func(restarter chan bool) {
+		for _ = range restarter {
+			log.Println("Restart requested")
+		}
+	}(restarter.addOutput("-debugging-"))
 	for _, host := range hosts {
 		if host != self {
-			go runRemote(host)
+			runRemote(host, restarter.addOutput(host))
 		}
 	}
 	select {}
