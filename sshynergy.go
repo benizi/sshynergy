@@ -22,8 +22,16 @@ import (
 
 func check(err error) {
 	if err != nil {
-		panic(err)
+		log.Panicln(err)
 	}
+}
+
+func isNetErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*net.OpError)
+	return ok
 }
 
 type options map[string]string
@@ -260,14 +268,24 @@ func xrandrSubscribe(events chan event) {
 	}()
 }
 
-func forwardRemote(conn *ssh.Client) {
+func forwardRemote(conn *ssh.Client) error {
 	listener, err := conn.Listen("tcp", "127.0.0.1:24800")
+	if isNetErr(err) {
+		log.Println("ERR", err)
+		log.Printf("ERR type %t", err)
+		return err
+	}
 	check(err)
 	defer listener.Close()
 
 	for {
 		remote, err := listener.Accept()
-		check(err)
+		if err == io.EOF {
+			return err
+		} else if err != nil {
+			log.Println(err)
+			return err
+		}
 		local, err := net.Dial("tcp", "localhost:24800")
 		if err != nil {
 			log.Println(err)
@@ -275,13 +293,24 @@ func forwardRemote(conn *ssh.Client) {
 		}
 		serveConnection(remote, local)
 	}
+
+	return nil
 }
 
-func runSynergyOn(conn *ssh.Client, host string) {
+func runSynergyOn(conn *ssh.Client, host string) error {
 	sess, err := conn.NewSession()
+	if isNetErr(err) {
+		return nil
+	}
 	check(err)
 	defer sess.Close()
-	sess.Start("synergyc -1 -f -n " + host + " localhost")
+	err = sess.Start("synergyc -1 -f -n " + host + " localhost")
+	if err != nil {
+		log.Printf("Error running synergyc on %s", host)
+		log.Println(err)
+		time.Sleep(time.Second)
+		return err
+	}
 	log.Println("Started synergyc on", host)
 	sess.Wait()
 }
@@ -293,28 +322,45 @@ func runLocal(hosts []string) {
 			serveSynergy(hosts, ready)
 		}
 	}()
-	err := <-ready
-	check(err)
+	check(<-ready)
 }
 
 func runRemote(host string) {
 	parsed := sshHostConf(host)
 	conn, err := parsed.dial()
+	if isNetErr(err) {
+		return err
+	}
 	check(err)
 	defer conn.Close()
 
 	go func() {
 		for {
 			log.Println("Forwarding remote port for", host)
-			forwardRemote(conn)
+			err := forwardRemote(conn)
+			if isNetErr(err) {
+				log.Println("Net error forwarding:", err)
+				log.Println("Bailing to restart", host)
+				return
+			} else if err != nil {
+				log.Println("Error forwarding remote:", err)
+				time.Sleep(time.Second)
+			}
 		}
 	}()
+
 	go func() {
 		for {
-			runSynergyOn(conn, host)
+			err := runSynergyOn(conn, host, restartSynergy)
+			if err != nil {
+				log.Println("Error running synergyc:", err)
+				log.Println("Not restarting synergyc on", host)
+				return
+			}
 		}
 	}()
-	select {}
+
+	return nil
 }
 
 func atMostEvery(every time.Duration, f func()) func() {
