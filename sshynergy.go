@@ -385,8 +385,8 @@ func restartOnXRandR() chan bool {
 	events := make(chan event, 100)
 	filtered := make(chan bool, 100)
 	xrandrSubscribe(events)
-	delay := 3*time.Second
-	debounce := 10*time.Second
+	delay := 2*time.Second
+	debounce := time.Second
 	runner := delayed(delay, atMostEvery(debounce, func() { filtered <- true }))
 	go func() {
 		for _ = range events {
