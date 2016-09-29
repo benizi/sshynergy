@@ -446,7 +446,7 @@ func delayed(delay time.Duration, f func()) func() {
 	}
 }
 
-func restartOnXRandR() chan bool {
+func xRandRchange() chan bool {
 	events := make(chan event, 100)
 	filtered := make(chan bool, 100)
 	xrandrSubscribe(events)
@@ -536,7 +536,7 @@ func (r *restartMux) addOutput(name string) chan bool {
 func main() {
 	hosts := parseHosts()
 	restarter := newRestartMux()
-	restarter.listenFor(restartOnXRandR())
+	restarter.listenFor(xRandRchange())
 	restarter.listenFor(terminalCtrlL())
 	runLocal(hosts, restarter)
 	go func(restarter chan bool) {
