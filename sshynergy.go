@@ -40,9 +40,9 @@ func isNetErr(err error) bool {
 type options map[string]string
 
 type section struct {
-	name string
+	name        string
 	subsections []section
-	config options
+	config      options
 }
 
 func indent(by string, text string) string {
@@ -57,7 +57,7 @@ func indent(by string, text string) string {
 func (o options) format(indent string) string {
 	var lines []string
 	for k, v := range o {
-		lines = append(lines, indent + k + " = " + v + "\n")
+		lines = append(lines, indent+k+" = "+v+"\n")
 	}
 	return strings.Join(lines, "")
 }
@@ -86,9 +86,9 @@ func genSynergyConf(hosts []string) []byte {
 	}
 	links := section{name: "links", subsections: []section{}}
 	for i, host := range hosts {
-		left, right := hosts[(len(hosts)+i-1) % len(hosts)],hosts[(i+1) % len(hosts)]
+		left, right := hosts[(len(hosts)+i-1)%len(hosts)], hosts[(i+1)%len(hosts)]
 		links.subsections = append(links.subsections, section{
-			name: host,
+			name:   host,
 			config: options{"left": left, "right": right},
 		})
 	}
@@ -148,7 +148,7 @@ func getAgent() sshagent.Agent {
 
 type opensshconf struct {
 	user, hostname, port string
-	idfiles []string
+	idfiles              []string
 }
 
 func (conf opensshconf) address() string {
@@ -268,7 +268,7 @@ func xrandrSubscribe(events chan event) {
 		randr.NotifyMaskOutputProperty
 	check(randr.SelectInputChecked(x, root, uint16(mask)).Check())
 
-	go func(){
+	go func() {
 		for {
 			ev, err := x.WaitForEvent()
 			if err != nil {
@@ -450,7 +450,7 @@ func xRandRchange() chan bool {
 	events := make(chan event, 100)
 	filtered := make(chan bool, 100)
 	xrandrSubscribe(events)
-	delay := 2*time.Second
+	delay := 2 * time.Second
 	debounce := time.Second
 	runner := delayed(delay, atMostEvery(debounce, func() { filtered <- true }))
 	go func() {
@@ -495,7 +495,7 @@ func init() {
 // A restartMux takes some number of incoming "you should restart" signals and
 // fans them out to a list of listeners.
 type restartMux struct {
-	outs map[string]chan bool
+	outs  map[string]chan bool
 	mutex *sync.Mutex
 }
 
