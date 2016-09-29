@@ -10,11 +10,14 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/randr"
 	"github.com/BurntSushi/xgb/xproto"
+
+	"github.com/benizi/termstate"
 
 	"golang.org/x/crypto/ssh"
 	sshagent "golang.org/x/crypto/ssh/agent"
@@ -458,6 +461,31 @@ func restartOnXRandR() chan bool {
 	return filtered
 }
 
+const ctrlL = byte('L' - '@')
+
+func terminalCtrlL() chan bool {
+	gotCtrlL := make(chan bool, 100)
+	if termstate.IsSupported() {
+		go func() {
+			defer termstate.DeferredReset(
+				termstate.State.Cbreak,
+				termstate.State.EchoOff,
+			)()
+			for {
+				key := []byte{0}
+				read, err := syscall.Read(0, key)
+				if read == 0 || err != nil {
+					return
+				}
+				if key[0] == ctrlL {
+					gotCtrlL <- true
+				}
+			}
+		}()
+	}
+	return gotCtrlL
+}
+
 func init() {
 	var err error
 	self, err = os.Hostname()
@@ -509,6 +537,7 @@ func main() {
 	hosts := parseHosts()
 	restarter := newRestartMux()
 	restarter.listenFor(restartOnXRandR())
+	restarter.listenFor(terminalCtrlL())
 	runLocal(hosts, restarter)
 	go func(restarter chan bool) {
 		for _ = range restarter {
