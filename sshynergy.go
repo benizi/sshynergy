@@ -280,7 +280,7 @@ func xrandrSubscribe(events chan event) {
 	}()
 }
 
-func forwardRemote(conn *ssh.Client) error {
+func forwardRemote(conn *ssh.Client, restart chan bool) error {
 	listener, err := conn.Listen("tcp", "127.0.0.1:24800")
 	if isNetErr(err) {
 		log.Println("ERR", err)
@@ -303,6 +303,7 @@ func forwardRemote(conn *ssh.Client) error {
 			log.Println(err)
 			continue
 		}
+		// TODO: wire restart into here
 		serveConnection(remote, local)
 	}
 
