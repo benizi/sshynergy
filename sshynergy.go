@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"io"
 	"log"
 	"net"
@@ -100,10 +101,10 @@ func genSynergyConf(hosts []string) []byte {
 
 var self string
 
-func parseHosts() []string {
+func parseHosts(hosts []string) []string {
 	var ret []string
 	addedSelf := false
-	for _, arg := range os.Args[1:len(os.Args)] {
+	for _, arg := range hosts {
 		if arg == "." {
 			arg = self
 			addedSelf = true
@@ -535,7 +536,14 @@ func (r *restartMux) addOutput(name string) chan bool {
 }
 
 func main() {
-	hosts := parseHosts()
+	var debugConf bool
+	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
+	flag.Parse()
+	hosts := parseHosts(flag.Args())
+	if (debugConf) {
+		os.Stdout.Write(genSynergyConf(hosts))
+		return
+	}
 	restarter := newRestartMux()
 	restarter.listenFor(xRandRchange())
 	restarter.listenFor(terminalCtrlL())
