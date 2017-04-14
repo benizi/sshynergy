@@ -76,10 +76,6 @@ func (s section) format() string {
 
 func genSynergyConf(hosts []string) []byte {
 	var conf string
-	opts := section{
-		name:   "options",
-		config: options{"screenSaverSync": "false"},
-	}
 	screens := section{name: "screens", subsections: []section{}}
 	for _, host := range hosts {
 		screens.subsections = append(screens.subsections, section{name: host})
@@ -92,7 +88,11 @@ func genSynergyConf(hosts []string) []byte {
 			config: options{"left": left, "right": right},
 		})
 	}
-	for _, s := range []section{opts, screens, links} {
+	opts := section{
+		name:   "options",
+		config: options{"screenSaverSync": "false"},
+	}
+	for _, s := range []section{screens, links, opts} {
 		conf += s.format()
 	}
 	return []byte(conf)
