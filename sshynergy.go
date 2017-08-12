@@ -284,9 +284,38 @@ func resolveHome(file string) string {
 	return file
 }
 
+func (conf *opensshconf) parseKnownHosts(filenames []string) error {
+	for _, file := range filenames {
+		in, err := ioutil.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		for {
+			kind, hosts, pubkey, comment, rest, err := ssh.ParseKnownHosts(in)
+			in = rest
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if kind != "" {
+				continue
+			}
+			conf.knownhosts = append(conf.knownhosts, knownhost{
+				file: file,
+				hosts: hosts,
+				pubkey: pubkey,
+				comment: comment,
+			})
+		}
+	}
+	return nil
+}
+
 func sshHostConf(host string) opensshconf {
 	var conf opensshconf
-	knownhostcontents := map[string][]byte{}
+	knownhostfiles := []string{}
 	parsed, err := exec.Command("ssh", "-G", host).Output()
 	check(err)
 	scanner := bufio.NewScanner(bytes.NewReader(parsed))
@@ -310,35 +339,13 @@ func sshHostConf(host string) opensshconf {
 			conf.idfiles = append(conf.idfiles, paths[len(paths)-1])
 		case "userknownhostsfile", "globalknownhostsfile":
 			for _, v := range strings.Split(val, " ") {
-				file := resolveHome(v)
-				contents, err := ioutil.ReadFile(file)
-				if err == nil {
-					knownhostcontents[file] = contents
-				}
+				knownhostfiles = append(knownhostfiles, resolveHome(v))
 			}
 		case "hashknownhosts":
 			conf.hashed = val == "yes"
 		}
 	}
-	for file, in := range knownhostcontents {
-		for {
-			kind, hosts, pubkey, comment, rest, err := ssh.ParseKnownHosts(in)
-			in = rest
-			if err == io.EOF {
-				break
-			}
-			check(err)
-			if kind != "" {
-				continue
-			}
-			conf.knownhosts = append(conf.knownhosts, knownhost{
-				file: file,
-				hosts: hosts,
-				pubkey: pubkey,
-				comment: comment,
-			})
-		}
-	}
+	check(conf.parseKnownHosts(knownhostfiles))
 	return conf
 }
 
