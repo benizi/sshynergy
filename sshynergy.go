@@ -106,7 +106,7 @@ func genSynergyConf(hosts []string) []byte {
 	}
 	opts := section{
 		name:   "options",
-		config: options{"screenSaverSync": "false"},
+		config: options{"screenSaverSync": "true"},
 	}
 	// forward audio play/pause keystrokes to server machine
 	opts.config[keystroke("AudioPause")] = keystroke("AudioPause", self)
