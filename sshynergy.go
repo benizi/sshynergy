@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -77,6 +78,16 @@ func (s section) format() string {
 	return lines
 }
 
+func keystroke(keyhosts ...string) string {
+	if len(keyhosts) == 0 {
+		return "Error: empty keystroke()"
+	}
+	if len(keyhosts[0]) == 1 {
+		keyhosts[0] = fmt.Sprintf("\\u%04x", keyhosts[0])
+	}
+	return fmt.Sprintf("keystroke(%s)", strings.Join(keyhosts, ","))
+}
+
 func genSynergyConf(hosts []string) []byte {
 	var conf string
 	screens := section{name: "screens", subsections: []section{}}
@@ -95,6 +106,9 @@ func genSynergyConf(hosts []string) []byte {
 		name:   "options",
 		config: options{"screenSaverSync": "false"},
 	}
+	// forward audio play/pause keystrokes to server machine
+	opts.config[keystroke("AudioPause")] = keystroke("AudioPause", self)
+	opts.config[keystroke("AudioPlay")] = keystroke("AudioPlay", self)
 	for _, s := range []section{screens, links, opts} {
 		conf += s.format()
 	}
