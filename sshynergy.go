@@ -24,6 +24,8 @@ import (
 	sshagent "golang.org/x/crypto/ssh/agent"
 )
 
+var killPriorServers = true
+
 func check(err error) {
 	if err != nil {
 		log.Panicln(err)
@@ -121,6 +123,11 @@ func parseHosts(hosts []string) []string {
 }
 
 func serveSynergy(hosts []string, ready chan error, restart chan bool) {
+	if killPriorServers {
+		if err := exec.Command("synergy-killer", "-k").Run(); err != nil {
+			log.Println("Failed to run synergy-killer -k:", err.Error())
+		}
+	}
 	cmd := exec.Command("synergys", "-f", "-a", "127.0.0.1", "-c", "/dev/stdin")
 	stdin, err := cmd.StdinPipe()
 	check(err)
@@ -390,6 +397,20 @@ func runRemoteLoop(host string, parsed opensshconf, restart chan bool) error {
 	go func() {
 		defer wg.Done()
 		for {
+			if killPriorServers {
+				func(){
+					sess, err := conn.NewSession()
+					if err != nil {
+						return
+					}
+					defer sess.Close()
+					err = sess.Run("synergy-killer -k")
+					if err != nil {
+						log.Printf("Error running synergy-killer on %s", host)
+						log.Println(err)
+					}
+				}()
+			}
 			err := runSynergyOn(conn, host, restartSynergy)
 			if err != nil {
 				log.Println("Error running synergyc:", err)
@@ -536,9 +557,12 @@ func (r *restartMux) addOutput(name string) chan bool {
 }
 
 func main() {
-	var debugConf bool
+	var debugConf, skipSynergyKiller bool
 	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
+	flag.BoolVar(&skipSynergyKiller, "no-kill", skipSynergyKiller,
+		"Don't call `synergy-killer` on each host")
 	flag.Parse()
+	killPriorServers = !skipSynergyKiller
 	hosts := parseHosts(flag.Args())
 	if (debugConf) {
 		os.Stdout.Write(genSynergyConf(hosts))
