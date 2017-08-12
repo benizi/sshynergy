@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -23,6 +24,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	sshagent "golang.org/x/crypto/ssh/agent"
+	sshkh "golang.org/x/crypto/ssh/knownhosts"
 )
 
 var killPriorServers = true
@@ -168,9 +170,18 @@ func getAgent() sshagent.Agent {
 	return sshagent.NewClient(conn)
 }
 
+type knownhost struct {
+	file    string
+	hosts   []string
+	pubkey  ssh.PublicKey
+	comment string
+}
+
 type opensshconf struct {
 	user, hostname, port string
 	idfiles              []string
+	knownhosts           []knownhost
+	hashed               bool
 }
 
 func (conf opensshconf) address() string {
@@ -223,11 +234,59 @@ func (conf opensshconf) dial() (*ssh.Client, error) {
 	return ssh.Dial("tcp", conf.address(), &ssh.ClientConfig{
 		User: conf.user,
 		Auth: conf.agentAuth(),
+		HostKeyCallback: conf.hostKeyCheck,
 	})
+}
+
+func (conf opensshconf) hostKeyCheck(
+	hostname string,
+	remote net.Addr,
+	key ssh.PublicKey,
+) error {
+	inhost := []string{hostname, remote.String()}
+	valid := map[string]bool{}
+	for _, host := range inhost {
+		for _, raw := range []string{host, sshkh.Normalize(host)} {
+			h := raw
+			if conf.hashed {
+				h = sshkh.HashHostname(raw)
+			}
+			valid[h] = true
+		}
+	}
+	for _, kh := range conf.knownhosts {
+		pk := kh.pubkey
+		if pk.Type() != key.Type() {
+			continue
+		}
+		wire := string(pk.Marshal())
+		for _, h := range kh.hosts {
+			n := sshkh.Normalize(h)
+			if conf.hashed {
+				n = sshkh.HashHostname(n)
+			}
+			if !valid[n] {
+				continue
+			}
+			if wire != string(key.Marshal()) {
+				continue
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("Found no matching hostkey for [%#+v]", valid)
+}
+
+func resolveHome(file string) string {
+	if strings.HasPrefix(file, "~/") {
+		return os.Getenv("HOME") + file[1:len(file)]
+	}
+	return file
 }
 
 func sshHostConf(host string) opensshconf {
 	var conf opensshconf
+	knownhostcontents := map[string][]byte{}
 	parsed, err := exec.Command("ssh", "-G", host).Output()
 	check(err)
 	scanner := bufio.NewScanner(bytes.NewReader(parsed))
@@ -245,13 +304,39 @@ func sshHostConf(host string) opensshconf {
 		case "port":
 			conf.port = val
 		case "identityfile":
-			file := val
-			if file[0] == '~' {
-				file = os.Getenv("HOME") + file[1:len(file)]
-			}
+			file := resolveHome(val)
 			paths := strings.Split(file, "/")
 			conf.idfiles = append(conf.idfiles, file)
 			conf.idfiles = append(conf.idfiles, paths[len(paths)-1])
+		case "userknownhostsfile", "globalknownhostsfile":
+			for _, v := range strings.Split(val, " ") {
+				file := resolveHome(v)
+				contents, err := ioutil.ReadFile(file)
+				if err == nil {
+					knownhostcontents[file] = contents
+				}
+			}
+		case "hashknownhosts":
+			conf.hashed = val == "yes"
+		}
+	}
+	for file, in := range knownhostcontents {
+		for {
+			kind, hosts, pubkey, comment, rest, err := ssh.ParseKnownHosts(in)
+			in = rest
+			if err == io.EOF {
+				break
+			}
+			check(err)
+			if kind != "" {
+				continue
+			}
+			conf.knownhosts = append(conf.knownhosts, knownhost{
+				file: file,
+				hosts: hosts,
+				pubkey: pubkey,
+				comment: comment,
+			})
 		}
 	}
 	return conf
