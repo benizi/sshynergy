@@ -642,9 +642,13 @@ func (r *restartMux) addOutput(name string) chan bool {
 }
 
 func main() {
-	var debugConf bool
+	var debugConf, noTimestamp bool
 	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
+	flag.BoolVar(&noTimestamp, "notime", noTimestamp, "Omit log timestamps")
 	flag.Parse()
+	if noTimestamp {
+		log.SetFlags(0)
+	}
 	hosts := parseHosts(flag.Args())
 	if (debugConf) {
 		os.Stdout.Write(genSynergyConf(hosts))
