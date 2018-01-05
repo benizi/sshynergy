@@ -694,14 +694,39 @@ func (r *restartMux) addOutput(name string) chan bool {
 	return out
 }
 
-func main() {
-	var debugConf, noTimestamp bool
-	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
-	flag.BoolVar(&noTimestamp, "notime", noTimestamp, "Omit log timestamps")
-	flag.Parse()
-	if noTimestamp {
-		log.SetFlags(0)
+func runMultilog(dir string, restarter chan bool) {
+	logger := exec.Command("multilog", "t", "e", dir)
+	loggerIn, err := logger.StdinPipe()
+	check(err)
+	log.SetOutput(loggerIn)
+	loggerOut, err := logger.StderrPipe()
+	check(err)
+	timeParser := exec.Command("tai64nlocal")
+	timeParser.Stdin = loggerOut
+	timestampedLog, err := timeParser.StdoutPipe()
+	check(err)
+	check(timeParser.Start())
+	check(logger.Start())
+	go io.Copy(os.Stdout, timestampedLog)
+	for {
+		select {
+		case again := <-restarter:
+			if again {
+				continue
+			}
+			go timeParser.Process.Wait()
+			go logger.Process.Wait()
+			loggerIn.Close()
+		}
 	}
+}
+
+func main() {
+	var debugConf bool
+	var multilogdir string
+	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
+	flag.StringVar(&multilogdir, "multilog", multilogdir, "Set up multilog")
+	flag.Parse()
 	hosts := parseHosts(flag.Args())
 	if (debugConf) {
 		os.Stdout.Write(genSynergyConf(hosts))
@@ -718,6 +743,9 @@ func main() {
 			}
 		}
 	}(restarter.addOutput("-debugging-"))
+	if multilogdir != "" {
+		go runMultilog(multilogdir, restarter.addOutput("logger"))
+	}
 	var wg sync.WaitGroup
 	runLocal(hosts, restarter, wg)
 	for _, host := range hosts {
