@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
@@ -136,13 +137,21 @@ func parseHosts(hosts []string) []string {
 	return ret
 }
 
+func startWithPgid(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	check(cmd.Start())
+}
+
 func serveSynergy(hosts []string, ready chan error, restart chan bool) error {
 	cmd := exec.Command("synergys", "-f", "-a", "127.0.0.1", "-c", "/dev/stdin")
 	stdin, err := cmd.StdinPipe()
 	check(err)
 	stdin.Write(genSynergyConf(hosts))
 	check(stdin.Close())
-	check(cmd.Start())
+	startWithPgid(cmd)
 	ready <- nil
 	log.Println("Local synergys pid:", cmd.Process.Pid)
 	finished := make(chan error, 1)
@@ -700,6 +709,20 @@ func (r *restartMux) addOutput(name string) chan bool {
 	return out
 }
 
+func signalHandler() chan bool {
+	restarter := make(chan bool, 1)
+	gotSignal := make(chan os.Signal, 1)
+	signal.Notify(gotSignal, syscall.SIGINT, syscall.SIGTERM, syscall.SIGPIPE)
+	go func() {
+		select {
+		case s := <-gotSignal:
+			log.Printf("Got signal: %d", s)
+			restarter <- false
+		}
+	}()
+	return restarter
+}
+
 func runMultilog(dir string, restarter chan bool) {
 	logger := exec.Command("multilog", "t", "e", dir)
 	loggerIn, err := logger.StdinPipe()
@@ -711,8 +734,8 @@ func runMultilog(dir string, restarter chan bool) {
 	timeParser.Stdin = loggerOut
 	timestampedLog, err := timeParser.StdoutPipe()
 	check(err)
-	check(timeParser.Start())
-	check(logger.Start())
+	startWithPgid(timeParser)
+	startWithPgid(logger)
 	go io.Copy(os.Stdout, timestampedLog)
 	for {
 		select {
@@ -739,6 +762,7 @@ func main() {
 		return
 	}
 	restarter := newRestartMux()
+	restarter.listenFor("signal", signalHandler())
 	restarter.listenFor("XRandR", xRandRchange())
 	restarter.listenFor("Ctrl+L", terminalCtrlL())
 	go func(debug chan bool) {
