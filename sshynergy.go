@@ -667,11 +667,12 @@ func newRestartMux() *restartMux {
 	}
 }
 
-func (r *restartMux) listenFor(in chan bool) {
+func (r *restartMux) listenFor(label string, in chan bool) {
 	go func() {
 		select {
 		case <-in:
 			r.notify()
+			log.Println("Got: " + label)
 		}
 	}()
 }
@@ -733,8 +734,8 @@ func main() {
 		return
 	}
 	restarter := newRestartMux()
-	restarter.listenFor(xRandRchange())
-	restarter.listenFor(terminalCtrlL())
+	restarter.listenFor("XRandR", xRandRchange())
+	restarter.listenFor("Ctrl+L", terminalCtrlL())
 	go func(debug chan bool) {
 		for {
 			select {
