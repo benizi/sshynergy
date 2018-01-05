@@ -238,8 +238,8 @@ func (conf opensshconf) agentAuth() []ssh.AuthMethod {
 
 func (conf opensshconf) dial() (*ssh.Client, error) {
 	return ssh.Dial("tcp", conf.address(), &ssh.ClientConfig{
-		User: conf.user,
-		Auth: conf.agentAuth(),
+		User:            conf.user,
+		Auth:            conf.agentAuth(),
 		HostKeyCallback: conf.hostKeyCheck,
 	})
 }
@@ -309,9 +309,9 @@ func (conf *opensshconf) parseKnownHosts(filenames []string) error {
 				continue
 			}
 			conf.knownhosts = append(conf.knownhosts, knownhost{
-				file: file,
-				hosts: hosts,
-				pubkey: pubkey,
+				file:    file,
+				hosts:   hosts,
+				pubkey:  pubkey,
 				comment: comment,
 			})
 		}
@@ -757,7 +757,7 @@ func main() {
 	flag.StringVar(&multilogdir, "multilog", multilogdir, "Set up multilog")
 	flag.Parse()
 	hosts := parseHosts(flag.Args())
-	if (debugConf) {
+	if debugConf {
 		os.Stdout.Write(genSynergyConf(hosts))
 		return
 	}
@@ -768,7 +768,7 @@ func main() {
 	go func(debug chan bool) {
 		for {
 			select {
-			case v := <- debug:
+			case v := <-debug:
 				log.Printf("Got restart signal (val=%v)", v)
 			}
 		}
