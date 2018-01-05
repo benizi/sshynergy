@@ -669,21 +669,26 @@ func newRestartMux() *restartMux {
 
 func (r *restartMux) listenFor(label string, in chan bool) {
 	go func() {
-		select {
-		case <-in:
-			r.notify()
-			log.Println("Got: " + label)
+		for {
+			select {
+			case val, ok := <-in:
+				if !ok {
+					log.Println("!ok " + label)
+					return
+				}
+				r.notify(val)
+			}
 		}
 	}()
 }
 
-func (r *restartMux) notify() {
+func (r *restartMux) notify(val bool) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	for _, out := range r.outs {
-		go func() {
-			out <- true
-		}()
+		go func(listener chan bool) {
+			listener <- val
+		}(out)
 	}
 }
 
