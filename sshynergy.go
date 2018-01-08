@@ -146,7 +146,13 @@ func startWithPgid(cmd *exec.Cmd) {
 }
 
 func serveSynergy(hosts []string, ready chan error, restart chan bool) error {
-	cmd := exec.Command("synergys", "-f", "-a", "127.0.0.1", "-c", "/dev/stdin")
+	synergys := strings.Split("synergys -f -a 127.0.0.1 -c /dev/stdin", " ")
+	args := os.Getenv("SYNERGYS_ARGS")
+	if args != "" {
+		synergys = append(synergys, strings.Split(args, " ")...)
+	}
+	log.Printf("Server commandline: %v", synergys)
+	cmd := exec.Command(synergys[0], synergys[1:]...)
 	stdin, err := cmd.StdinPipe()
 	check(err)
 	stdin.Write(genSynergyConf(hosts))
@@ -451,7 +457,14 @@ func runSynergyOn(conn *ssh.Client, host string, restart chan bool) error {
 	}
 	check(err)
 	defer sess.Close()
-	err = sess.Start("synergyc -1 -f -n " + host + " localhost")
+	sep := ""
+	args := os.Getenv("SYNERGYC_ARGS")
+	if args != "" {
+		sep = " "
+	}
+	cmd := fmt.Sprintf("synergyc -1 -f -n %s%s%s localhost", host, sep, args)
+	log.Printf("Client commandline: %s", cmd)
+	err = sess.Start(cmd)
 	if err != nil {
 		log.Printf("Error running synergyc on %s", host)
 		log.Println(err)
