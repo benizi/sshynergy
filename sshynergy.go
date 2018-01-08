@@ -736,7 +736,7 @@ func signalHandler() chan bool {
 	return restarter
 }
 
-func runMultilog(dir string, restarter chan bool) {
+func runMultilog(dir string, restarter chan bool, started chan bool) {
 	logger := exec.Command("multilog", "t", "e", dir)
 	loggerIn, err := logger.StdinPipe()
 	check(err)
@@ -751,6 +751,7 @@ func runMultilog(dir string, restarter chan bool) {
 	startWithPgid(timeParser)
 	startWithPgid(logger)
 	go io.Copy(os.Stdout, timestampedLog)
+	started <- true
 	for {
 		select {
 		case again := <-restarter:
@@ -788,7 +789,9 @@ func main() {
 		}
 	}(restarter.addOutput("-debugging-"))
 	if multilogdir != "" {
-		go runMultilog(multilogdir, restarter.addOutput("logger"))
+		started := make(chan bool, 1)
+		go runMultilog(multilogdir, restarter.addOutput("logger"), started)
+		<-started
 	}
 	var wg sync.WaitGroup
 	runLocal(hosts, restarter, &wg)
