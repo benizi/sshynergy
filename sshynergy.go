@@ -741,6 +741,7 @@ func runMultilog(dir string, restarter chan bool) {
 	loggerIn, err := logger.StdinPipe()
 	check(err)
 	log.SetOutput(loggerIn)
+	log.SetFlags(0) // no timestamp
 	loggerOut, err := logger.StderrPipe()
 	check(err)
 	timeParser := exec.Command("tai64nlocal")
