@@ -478,7 +478,7 @@ func runSynergyOn(conn *ssh.Client, host string, restart chan bool) error {
 	}
 }
 
-func runLocal(hosts []string, restarter *restartMux, wg sync.WaitGroup) {
+func runLocal(hosts []string, restarter *restartMux, wg *sync.WaitGroup) {
 	wg.Add(1)
 	ready := make(chan error, 1)
 	go func() {
@@ -581,7 +581,7 @@ func runRemoteLoop(host string, parsed opensshconf, restart chan bool) error {
 	}
 }
 
-func runRemote(host string, restart chan bool, wg sync.WaitGroup) {
+func runRemote(host string, restart chan bool, wg *sync.WaitGroup) {
 	wg.Add(1)
 	parsed := sshHostConf(host)
 	go func() {
@@ -777,10 +777,10 @@ func main() {
 		go runMultilog(multilogdir, restarter.addOutput("logger"))
 	}
 	var wg sync.WaitGroup
-	runLocal(hosts, restarter, wg)
+	runLocal(hosts, restarter, &wg)
 	for _, host := range hosts {
 		if host != self {
-			runRemote(host, restarter.addOutput(host), wg)
+			runRemote(host, restarter.addOutput(host), &wg)
 		}
 	}
 	wg.Wait()
