@@ -214,6 +214,7 @@ type opensshconf struct {
 	knownhosts           []knownhost
 	hashed               bool
 	env                  map[string]bool
+	remoteforwards       []string
 }
 
 func (conf opensshconf) address() string {
@@ -377,6 +378,8 @@ func sshHostConf(host string) opensshconf {
 			conf.hashed = val == "yes"
 		case "sendenv":
 			conf.env[val] = true
+		case "remoteforward":
+			conf.remoteforwards = append(conf.remoteforwards, val)
 		}
 	}
 	check(conf.parseKnownHosts(knownhostfiles))
