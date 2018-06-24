@@ -310,6 +310,15 @@ func (conf opensshconf) hostKeyCheck(
 	return fmt.Errorf("Found no matching hostkey for [%#+v]", valid)
 }
 
+func (conf opensshconf) hasSynergyForwarding() bool {
+	for _, fwd := range conf.remoteforwards {
+		if fwd == "24800" || strings.HasSuffix(fwd, ":24800") {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveHome(file string) string {
 	if strings.HasPrefix(file, "~/") {
 		return os.Getenv("HOME") + file[1:len(file)]
@@ -622,18 +631,53 @@ func runRemoteLoop(host string, parsed opensshconf, restart chan bool) error {
 func runRemote(host string, restart chan bool, wg *sync.WaitGroup) {
 	wg.Add(1)
 	parsed := sshHostConf(host)
+	runner := runRemoteLoop
+	if parsed.hasSynergyForwarding() {
+		runner = runLocalLoop
+	}
 	go func() {
 		defer wg.Done()
 		for {
-			log.Printf("runRemoteLoop(%s)", host)
-			err := runRemoteLoop(host, parsed, restart)
-			if err != nil {
-				log.Println("Error returned from runRemoteLoop:", err)
+			log.Printf("Restarting runner for %s", host)
+			err := runner(host, parsed, restart)
+			if err == nil {
 				return
 			}
+			log.Printf("Error returned from runner(%s): %v", host, err)
 			time.Sleep(time.Second)
 		}
 	}()
+}
+
+func runLocalLoop(host string, parsed opensshconf, restart chan bool) error {
+	exited := make(chan error, 1)
+	kill := make(chan bool, 1)
+	cmd := exec.Command("ssh", host)
+	startWithPgid(cmd)
+	go func() {
+		exited <- cmd.Wait()
+	}()
+	go func() {
+		<-kill
+		cmd.Process.Kill()
+	}()
+	select {
+	case err, ok := <-exited:
+		if !ok || err != nil {
+			log.Printf("Error running ssh %s: %v", host, err)
+			if err == nil {
+				err = fmt.Errorf("Error receiving from ssh command waiter")
+			}
+			return err
+		}
+	case again, ok := <-restart:
+		if !ok || !again {
+			kill <- true
+			log.Println("Exit request received by runLocalLoop")
+			return nil
+		}
+	}
+	return nil
 }
 
 func atMostEvery(every time.Duration, f func()) func() {
