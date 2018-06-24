@@ -97,10 +97,15 @@ func genSynergyConf(hosts []string) []byte {
 	}
 	links := section{name: "links", subsections: []section{}}
 	for i, host := range hosts {
-		left, right := hosts[(len(hosts)+i-1)%len(hosts)], hosts[(i+1)%len(hosts)]
+		prev, next := hosts[(len(hosts)+i-1)%len(hosts)], hosts[(i+1)%len(hosts)]
 		links.subsections = append(links.subsections, section{
-			name:   host,
-			config: options{"left": left, "right": right},
+			name: host,
+			config: options{
+				"left":  prev,
+				"up":    prev,
+				"right": next,
+				"down":  next,
+			},
 		})
 	}
 	opts := section{
