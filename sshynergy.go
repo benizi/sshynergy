@@ -108,16 +108,27 @@ func genSynergyConf(hosts []string) []byte {
 			},
 		})
 	}
-	opts := section{
-		name: "options",
-		config: options{
-			"screenSaverSync":  "true",
-			"clipboardSharing": "false",
-		},
+	serveropts := options{
+		"screenSaverSync":  "true",
+		"clipboardSharing": "false",
+		// forward audio play/pause keystrokes to server machine
+		keystroke("AudioPause"): keystroke("AudioPause", self),
+		keystroke("AudioPlay"):  keystroke("AudioPlay", self),
 	}
-	// forward audio play/pause keystrokes to server machine
-	opts.config[keystroke("AudioPause")] = keystroke("AudioPause", self)
-	opts.config[keystroke("AudioPlay")] = keystroke("AudioPlay", self)
+	for _, e := range os.Environ() {
+		kv := strings.SplitN(e, "=", 2)
+		k, v := kv[0], kv[1]
+		if strings.HasPrefix(k, "SYNERGY_OPTION") {
+			for _, ckv := range strings.Split(v, ",") {
+				kv := strings.SplitN(ckv, "=", 2)
+				serveropts[kv[0]] = kv[1]
+			}
+		}
+	}
+	opts := section{
+		name:   "options",
+		config: serveropts,
+	}
 	for _, s := range []section{screens, links, opts} {
 		conf += s.format()
 	}
