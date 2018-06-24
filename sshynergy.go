@@ -213,6 +213,7 @@ type opensshconf struct {
 	idfiles              []string
 	knownhosts           []knownhost
 	hashed               bool
+	env                  map[string]bool
 }
 
 func (conf opensshconf) address() string {
@@ -374,6 +375,8 @@ func sshHostConf(host string) opensshconf {
 			}
 		case "hashknownhosts":
 			conf.hashed = val == "yes"
+		case "sendenv":
+			conf.env[val] = true
 		}
 	}
 	check(conf.parseKnownHosts(knownhostfiles))
