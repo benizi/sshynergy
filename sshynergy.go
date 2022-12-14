@@ -86,7 +86,28 @@ func keystroke(keyhosts ...string) string {
 	if len(keyhosts[0]) == 1 {
 		keyhosts[0] = fmt.Sprintf("\\u%04x", keyhosts[0])
 	}
-	return fmt.Sprintf("keystroke(%s)", strings.Join(keyhosts, ","))
+	return directive("keystroke", keyhosts...)
+}
+
+type direction string
+
+const (
+	dir_up    direction = "up"
+	dir_down            = "down"
+	dir_left            = "left"
+	dir_right           = "right"
+)
+
+func switchDir(dir direction) string {
+	return directive("switchInDirection", string(dir))
+}
+
+func switchTo(screen string) string {
+	return directive("switchToScreen", screen)
+}
+
+func directive(op string, args ...string) string {
+	return fmt.Sprintf("%s(%s)", op, strings.Join(args, ","))
 }
 
 func genSynergyConf(hosts []string) []byte {
@@ -114,6 +135,14 @@ func genSynergyConf(hosts []string) []byte {
 		// forward audio play/pause keystrokes to server machine
 		keystroke("AudioPause"): keystroke("AudioPause", self),
 		keystroke("AudioPlay"):  keystroke("AudioPlay", self),
+	}
+	for _, d := range []direction{dir_up, dir_down, dir_left, dir_right} {
+		s := string(d)
+		key := "Control+Super+" + strings.ToUpper(s[0:1]) + s[1:]
+		serveropts[keystroke(key)] = switchDir(d)
+	}
+	for i, h := range hosts {
+		serveropts[keystroke(fmt.Sprintf("Super+F%d", i+1))] = switchTo(h)
 	}
 	for _, e := range os.Environ() {
 		kv := strings.SplitN(e, "=", 2)
