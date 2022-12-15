@@ -866,8 +866,11 @@ func runMultilog(dir string, restarter chan bool, started chan bool) {
 func main() {
 	var debugConf bool
 	var multilogdir string
+	var enableXrandr bool
 	flag.BoolVar(&debugConf, "print", debugConf, "Just print the config")
 	flag.StringVar(&multilogdir, "multilog", multilogdir, "Set up multilog")
+	flag.BoolVar(&enableXrandr, "randr", enableXrandr,
+		"Listen for XRandR change events")
 	flag.Parse()
 	hosts := parseHosts(flag.Args())
 	if debugConf {
@@ -876,7 +879,9 @@ func main() {
 	}
 	restarter := newRestartMux()
 	restarter.listenFor("signal", signalHandler())
-	restarter.listenFor("XRandR", xRandRchange())
+	if enableXrandr {
+		restarter.listenFor("XRandR", xRandRchange())
+	}
 	restarter.listenFor("Ctrl+L", terminalCtrlL())
 	go func(debug chan bool) {
 		for {
